@@ -1,3 +1,5 @@
+'use client'
+
 import React, { useState } from 'react';
 import { Search, TrendingUp, DollarSign, Activity, AlertCircle, Filter } from 'lucide-react';
 
