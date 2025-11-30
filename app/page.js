@@ -1,13 +1,13 @@
-'use client';
-
 import React, { useState } from 'react';
-import { Search, TrendingUp, DollarSign, Activity, AlertCircle } from 'lucide-react';
+import { Search, TrendingUp, DollarSign, Activity, AlertCircle, Filter } from 'lucide-react';
 
 export default function TradeVolumeChecker() {
   const [walletAddress, setWalletAddress] = useState('');
+  const [pairFilter, setPairFilter] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [userData, setUserData] = useState(null);
+  const [availablePairs, setAvailablePairs] = useState([]);
 
   const fetchUserVolume = async () => {
     if (!walletAddress || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
@@ -18,6 +18,7 @@ export default function TradeVolumeChecker() {
     setLoading(true);
     setError('');
     setUserData(null);
+    setAvailablePairs([]);
 
     try {
       const response = await fetch('/api/hyperliquid', {
@@ -38,7 +39,7 @@ export default function TradeVolumeChecker() {
       const data = await response.json();
 
       if (!data || (!data.marginSummary && !data.assetPositions)) {
-        setError('Aucune donnée trouvée pour cette adresse');
+        setError('Aucune donnée trouvée pour cette adresse. Vérifiez que le wallet a une activité sur Hyperliquid/Trade.xyz');
         setLoading(false);
         return;
       }
@@ -56,18 +57,46 @@ export default function TradeVolumeChecker() {
 
       let totalVolume = 0;
       let tradesCount = 0;
+      let volumeByPair = {};
+      let tradesByPair = {};
 
       if (fillsResponse.ok) {
         const fillsData = await fillsResponse.json();
         
         if (Array.isArray(fillsData)) {
-          tradesCount = fillsData.length;
-          totalVolume = fillsData.reduce((sum, fill) => {
+          fillsData.forEach(fill => {
+            const pair = fill.coin || 'Unknown';
             const volume = parseFloat(fill.px) * parseFloat(fill.sz);
-            return sum + volume;
-          }, 0);
+            
+            // Volume par paire
+            if (!volumeByPair[pair]) {
+              volumeByPair[pair] = 0;
+              tradesByPair[pair] = 0;
+            }
+            volumeByPair[pair] += volume;
+            tradesByPair[pair] += 1;
+            
+            // Filtrer si une paire est sélectionnée
+            if (!pairFilter || pair === pairFilter) {
+              totalVolume += volume;
+              tradesCount += 1;
+            }
+          });
+          
+          // Si aucun filtre n'est appliqué, calculer le volume total
+          if (!pairFilter) {
+            totalVolume = fillsData.reduce((sum, fill) => {
+              const volume = parseFloat(fill.px) * parseFloat(fill.sz);
+              return sum + volume;
+            }, 0);
+            tradesCount = fillsData.length;
+          }
         }
       }
+
+      // Extraire les paires disponibles
+      const pairs = Object.keys(volumeByPair).sort();
+      setAvailablePairs(pairs);
 
       setUserData({
         address: walletAddress,
@@ -77,9 +106,12 @@ export default function TradeVolumeChecker() {
         tradesCount: tradesCount,
         crossMarginSummary: data.crossMarginSummary,
         assetPositions: data.assetPositions || [],
+        volumeByPair: volumeByPair,
+        tradesByPair: tradesByPair,
       });
     } catch (err) {
-      setError(err.message || 'Une erreur est survenue');
+      console.error('Erreur complète:', err);
+      setError(`Impossible de récupérer les données. Erreur: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -88,6 +120,31 @@ export default function TradeVolumeChecker() {
   const handleKeyPress = (e) => {
     if (e.key === 'Enter') {
       fetchUserVolume();
+    }
+  };
+
+  const handlePairFilterChange = (pair) => {
+    setPairFilter(pair);
+    if (userData) {
+      // Recalculer les stats avec le filtre
+      let filteredVolume = 0;
+      let filteredTrades = 0;
+      
+      if (pair === '') {
+        // Pas de filtre - montrer tout
+        filteredVolume = Object.values(userData.volumeByPair).reduce((sum, vol) => sum + vol, 0);
+        filteredTrades = Object.values(userData.tradesByPair).reduce((sum, count) => sum + count, 0);
+      } else {
+        // Filtre appliqué
+        filteredVolume = userData.volumeByPair[pair] || 0;
+        filteredTrades = userData.tradesByPair[pair] || 0;
+      }
+      
+      setUserData({
+        ...userData,
+        totalVolume: filteredVolume.toFixed(2),
+        tradesCount: filteredTrades,
+      });
     }
   };
 
@@ -139,6 +196,28 @@ export default function TradeVolumeChecker() {
                 </button>
               </div>
             </div>
+
+            {availablePairs.length > 0 && (
+              <div>
+                <label htmlFor="pairFilter" className="block text-sm font-medium text-white mb-2 flex items-center gap-2">
+                  <Filter className="w-4 h-4" />
+                  Filtrer par Paire
+                </label>
+                <select
+                  id="pairFilter"
+                  value={pairFilter}
+                  onChange={(e) => handlePairFilterChange(e.target.value)}
+                  className="w-full px-4 py-3 bg-white/5 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="" className="bg-slate-800">Toutes les paires</option>
+                  {availablePairs.map(pair => (
+                    <option key={pair} value={pair} className="bg-slate-800">
+                      {pair}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           {error && (
@@ -151,11 +230,28 @@ export default function TradeVolumeChecker() {
 
         {userData && (
           <div className="space-y-6">
+            {pairFilter && (
+              <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-4 flex items-center gap-3">
+                <Filter className="w-5 h-5 text-blue-400" />
+                <p className="text-blue-200">
+                  Filtré pour la paire : <span className="font-bold">{pairFilter}</span>
+                </p>
+                <button
+                  onClick={() => handlePairFilterChange('')}
+                  className="ml-auto px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm transition-colors"
+                >
+                  Effacer le filtre
+                </button>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-gradient-to-br from-purple-600 to-purple-800 rounded-xl p-6 shadow-xl">
                 <div className="flex items-center gap-3 mb-2">
                   <DollarSign className="w-6 h-6 text-white" />
-                  <h3 className="text-white/80 text-sm font-medium">Volume Total</h3>
+                  <h3 className="text-white/80 text-sm font-medium">
+                    {pairFilter ? `Volume ${pairFilter}` : 'Volume Total'}
+                  </h3>
                 </div>
                 <p className="text-3xl font-bold text-white">
                   ${parseFloat(userData.totalVolume).toLocaleString()}
@@ -165,7 +261,9 @@ export default function TradeVolumeChecker() {
               <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-xl p-6 shadow-xl">
                 <div className="flex items-center gap-3 mb-2">
                   <Activity className="w-6 h-6 text-white" />
-                  <h3 className="text-white/80 text-sm font-medium">Nombre de Trades</h3>
+                  <h3 className="text-white/80 text-sm font-medium">
+                    {pairFilter ? `Trades ${pairFilter}` : 'Nombre de Trades'}
+                  </h3>
                 </div>
                 <p className="text-3xl font-bold text-white">
                   {userData.tradesCount.toLocaleString()}
@@ -182,6 +280,42 @@ export default function TradeVolumeChecker() {
                 </p>
               </div>
             </div>
+
+            {!pairFilter && Object.keys(userData.volumeByPair).length > 0 && (
+              <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
+                <h2 className="text-2xl font-bold text-white mb-4">Volume par Paire</h2>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-white/20">
+                        <th className="text-left py-3 px-4 text-slate-300 font-medium">Paire</th>
+                        <th className="text-right py-3 px-4 text-slate-300 font-medium">Trades</th>
+                        <th className="text-right py-3 px-4 text-slate-300 font-medium">Volume</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(userData.volumeByPair)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([pair, volume]) => (
+                          <tr 
+                            key={pair} 
+                            className="border-b border-white/10 hover:bg-white/5 cursor-pointer transition-colors"
+                            onClick={() => handlePairFilterChange(pair)}
+                          >
+                            <td className="py-3 px-4 text-white font-medium">{pair}</td>
+                            <td className="py-3 px-4 text-slate-300 text-right">
+                              {userData.tradesByPair[pair].toLocaleString()}
+                            </td>
+                            <td className="py-3 px-4 text-white text-right font-semibold">
+                              ${volume.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
               <h2 className="text-2xl font-bold text-white mb-4">Détails du Compte</h2>
@@ -260,7 +394,9 @@ export default function TradeVolumeChecker() {
         )}
 
         <div className="mt-8 text-center text-slate-400 text-sm">
-          <p>Données fournies par l'API Hyperliquid • Trade.xyz utilise Hyperliquid</p>
+          <p>
+            Données fournies par l'API Hyperliquid • Trade.xyz utilise Hyperliquid
+          </p>
         </div>
       </div>
     </div>
