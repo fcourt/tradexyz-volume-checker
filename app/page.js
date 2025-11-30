@@ -64,6 +64,7 @@ export default function TradeVolumeChecker() {
         const fillsData = await fillsResponse.json();
         
         if (Array.isArray(fillsData)) {
+          // D'abord calculer tous les volumes par paire
           fillsData.forEach(fill => {
             const pair = fill.coin || 'Unknown';
             const volume = parseFloat(fill.px) * parseFloat(fill.sz);
@@ -75,28 +76,23 @@ export default function TradeVolumeChecker() {
             }
             volumeByPair[pair] += volume;
             tradesByPair[pair] += 1;
-            
-            // Filtrer si une paire est sélectionnée
-            if (!pairFilter || pair === pairFilter) {
-              totalVolume += volume;
-              tradesCount += 1;
-            }
           });
           
-          // Si aucun filtre n'est appliqué, calculer le volume total
-          if (!pairFilter) {
-            totalVolume = fillsData.reduce((sum, fill) => {
-              const volume = parseFloat(fill.px) * parseFloat(fill.sz);
-              return sum + volume;
-            }, 0);
-            tradesCount = fillsData.length;
-          }
+          // Ensuite calculer le volume total (sans filtre au chargement initial)
+          totalVolume = fillsData.reduce((sum, fill) => {
+            const volume = parseFloat(fill.px) * parseFloat(fill.sz);
+            return sum + volume;
+          }, 0);
+          tradesCount = fillsData.length;
         }
       }
+      
+      console.log('Paires trouvées:', Object.keys(volumeByPair));
 
-      // Extraire les paires disponibles
+      // Extraire les paires disponibles et trier
       const pairs = Object.keys(volumeByPair).sort();
       setAvailablePairs(pairs);
+      console.log('setAvailablePairs appelé avec:', pairs);
 
       setUserData({
         address: walletAddress,
