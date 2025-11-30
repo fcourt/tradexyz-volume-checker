@@ -59,35 +59,47 @@ export default function TradeVolumeChecker() {
       let tradesCount = 0;
       let volumeByPair = {};
       let tradesByPair = {};
+      let allFills = [];
 
       if (fillsResponse.ok) {
         const fillsData = await fillsResponse.json();
+        console.log('Fills data received:', fillsData);
         
-        if (Array.isArray(fillsData)) {
-          // D'abord calculer tous les volumes par paire
+        if (Array.isArray(fillsData) && fillsData.length > 0) {
+          allFills = fillsData;
+          
+          // Calculer tous les volumes par paire depuis l'historique complet
           fillsData.forEach(fill => {
             const pair = fill.coin || 'Unknown';
-            const volume = parseFloat(fill.px) * parseFloat(fill.sz);
+            const price = parseFloat(fill.px || 0);
+            const size = Math.abs(parseFloat(fill.sz || 0));
+            const volume = price * size;
             
-            // Volume par paire
+            console.log(`Trade: ${pair}, Prix: ${price}, Taille: ${size}, Volume: ${volume}`);
+            
+            // Initialiser si nécessaire
             if (!volumeByPair[pair]) {
               volumeByPair[pair] = 0;
               tradesByPair[pair] = 0;
             }
+            
             volumeByPair[pair] += volume;
             tradesByPair[pair] += 1;
           });
           
-          // Ensuite calculer le volume total (sans filtre au chargement initial)
-          totalVolume = fillsData.reduce((sum, fill) => {
-            const volume = parseFloat(fill.px) * parseFloat(fill.sz);
-            return sum + volume;
-          }, 0);
+          // Calculer le volume total
+          totalVolume = Object.values(volumeByPair).reduce((sum, vol) => sum + vol, 0);
           tradesCount = fillsData.length;
+          
+          console.log('Volume par paire calculé:', volumeByPair);
+          console.log('Volume total:', totalVolume);
+          console.log('Nombre de trades:', tradesCount);
+        } else {
+          console.log('Aucun fill trouvé ou données invalides');
         }
+      } else {
+        console.error('Erreur lors de la récupération des fills');
       }
-      
-      console.log('Paires trouvées:', Object.keys(volumeByPair));
 
       // Extraire les paires disponibles et trier
       const pairs = Object.keys(volumeByPair).sort();
